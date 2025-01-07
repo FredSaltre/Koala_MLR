@@ -43,31 +43,8 @@ library(spatstat)  # For spatial point pattern analysis
 library(MASS)      # For statistical functions like kde2d (kernel density estimation)
 library(proj4)      # For distance calculations (geodesic distances)
 library(sp) 
+library(Imap)
 library(terra)
-library(reticulate)
-library(tensorflow)
-
-# Set environment variables before loading TensorFlow
-Sys.setenv(TF_METAL = "1")
-Sys.setenv(MKL_NUM_THREADS = "1")
-Sys.setenv(OMP_NUM_THREADS = "1")
-
-# Verify Python configuration
-py_config()
-
-# Check available GPU devices
-physical_devices <- tf$config$list_physical_devices('GPU')
-print(physical_devices)
-
-if (!is.null(physical_devices) && length(physical_devices) > 0) {
-  for (device in physical_devices) {
-    tf$config$experimental$set_memory_growth(device, TRUE)
-  }
-  cat("GPUs found and configured\n")
-} else {
-  cat("No GPU devices found\n")
-}
-
 
 # Set the grid size for the Poisson model calculations
 ng <- 160  # Grid size for stability in intensity estimation
@@ -76,68 +53,7 @@ ng <- 160  # Grid size for stability in intensity estimation
 # FUNCTIONS
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 source("LatLongToXY.r")# Load the script to convert latitude/longitude to Cartesian coordinates
-# Custom TensorFlow implementation of the Vincenty distance to replace gdist
-vincenty_distance_tf_manual <- function(lon1, lat1, lon2, lat2) {
-  a <- 6378137.0  # Major axis of the ellipsoid (meters)
-  f <- 1 / 298.257223563  # Flattening of the ellipsoid
-  b <- (1 - f) * a
-  
-  # Convert degrees to radians
-  phi1 <- tf$convert_to_tensor(lat1 * (pi / 180), dtype = tf$float64)
-  phi2 <- tf$convert_to_tensor(lat2 * (pi / 180), dtype = tf$float64)
-  lambda1 <- tf$convert_to_tensor(lon1 * (pi / 180), dtype = tf$float64)
-  lambda2 <- tf$convert_to_tensor(lon2 * (pi / 180), dtype = tf$float64)
-  
-  U1 <- tf$atan((1 - f) * tf$tan(phi1))
-  U2 <- tf$atan((1 - f) * tf$tan(phi2))
-  L <- lambda2 - lambda1
-  Lambda <- L
-  
-  sinU1 <- tf$sin(U1)
-  cosU1 <- tf$cos(U1)
-  sinU2 <- tf$sin(U2)
-  cosU2 <- tf$cos(U2)
-  
-  # Initial loop variables
-  i <- 0L
-  Lambda_prev <- tf$constant(0.0, dtype = tf$float64)
-  
-  # Start manual loop
-  continue <- TRUE
-  while (continue && i < 1000L) {
-    i <- i + 1L
-    
-    sinLambda <- tf$sin(Lambda)
-    cosLambda <- tf$cos(Lambda)
-    sinSigma <- tf$sqrt((cosU2 * sinLambda)^2 + (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda)^2)
-    cosSigma <- sinU1 * sinU2 + cosU1 * cosU2 * cosLambda
-    sigma <- tf$atan2(sinSigma, cosSigma)
-    sinAlpha <- cosU1 * cosU2 * sinLambda / sinSigma
-    cosSqAlpha <- 1 - sinAlpha^2
-    cos2SigmaM <- cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha
-    
-    C <- f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha))
-    Lambda_prev <- Lambda
-    Lambda <- L + (1 - C) * f * sinAlpha * (sigma + C * sinSigma * (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM^2)))
-    
-    # Evaluate the condition manually
-    continue <- as.numeric(tf$reduce_any(tf$abs(Lambda - Lambda_prev) >= 1e-12)$numpy()) && i < 1000L
-    
-    # Print intermediate results
-    #cat("Iteration:", i, "Lambda:", as.numeric(Lambda), "Lambda_prev:", as.numeric(Lambda_prev), "\n")
-  }
-  # Final calculations after loop
-  uSq <- cosSqAlpha * (a^2 - b^2) / (b^2)
-  A <- 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)))
-  B <- uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)))
-  deltaSigma <- B * sinSigma * (cos2SigmaM + B / 4 * (cosSigma * (-1 + 2 * cos2SigmaM^2) - B / 6 * cos2SigmaM * (-3 + 4 * sinSigma^2) * (-3 + 4 * cos2SigmaM^2)))
-  
-  distance <- b * A * (sigma - deltaSigma)
-  
-  #tf$print("Final Distance:", distance)
-  
-  return(as.numeric(distance))
-}
+
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Read the shapefile for park boundaries (spatial limits of parks)
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -187,15 +103,7 @@ yh <- sort(rep(kde.res$y, 240))[kde.res$z == mh]  # Y-coordinate of the highest 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Analyze the effect of distance from the highest density point (xh, yh)
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-dik<-rep(NA,length(Koala2$x))
-for(i in 1:length(Koala2$x)) { 
-  dik[i]  <- as.numeric(vincenty_distance_tf_manual(Koala2$x[i], Koala2$y[i], xh, yh) / 1000)  # Convert to km
-  }
-
-#dik <- gdist(Koala2$x, Koala2$y, xh, yh, unit="km")  # Calculate the geodesic distance to (xh, yh)
-
-
-
+dik <- gdist(Koala2$x, Koala2$y, xh, yh, unit="km")  # Calculate the geodesic distance to (xh, yh)
 densdik <- density(c(-dik, dik))  # Create a density estimate of the distances
 densdik$y <- log(densdik$y / abs(densdik$x))  # Log-transform the density estimate
 
@@ -227,26 +135,6 @@ disroute.dat <- data.frame(D2SROADS = values(disroute_spatvector_transformed),
 # Print the first few rows to check the transformed data
 print(head(disroute.dat))
 
-#disroute_sf <- as.points(dist2sroads)
-#disroute_sf_transformed <- st_transform(disroute_sf, crs = 4326)
-
-
-#disroute.dat <- data.frame(dist2sroads.asc)
-
-#colnames(disroute.dat) <-c("D2SROADS","Lon0","Lat0")
-#disroute_sf <- st_as_sf(disroute.dat, coords = c("Lon0", "Lat0"), crs = 4326)
-
-# Now reproject using the Lambert Equal-Area projection
-# (this is just an example of the "+proj=eqc +lat_ts=60 ..." projection)
-#disroute_sf_transformed <- st_transform(disroute_sf, crs = "+proj=eqc +lat_ts=60 +lon_0=0 +datum=WGS84")
-
-# Extract the transformed coordinates back into your dataframe
-#disroute.dat$Lon <- st_coordinates(disroute_sf_transformed)[,1]
-#disroute.dat$Lat <- st_coordinates(disroute_sf_transformed)[,2]
-
-#disroute.dat[, 4:5] <- project(as.matrix(coordinates(disroute.dat[, 2:3])), inv=TRUE, proj=(as.character("+proj=eqc +lat_ts=60 ...")))
-#names(disroute.dat)[4:5] <- c("Lon", "Lat")
-
 # Plot convex hull, roads, and koalas
 plot(convKoala2, lwd=2, col=5, main="Complete Data Set")  # Plot the koala convex hull
 points(disroute.dat$Lon, disroute.dat$Lat, pch=19, col=gray(disroute.dat$Dist2sealRoads**0.3 / max(disroute.dat$Dist2sealRoads**0.3)))  # Plot distance to roads
@@ -275,9 +163,6 @@ zz_proj_sf <- st_transform(zz_sf, crs = "+proj=eqc +lat_ts=60 +lon_0=0 +datum=WG
 print(zz_proj_sf)
 zz_proj_coords <- st_coordinates(zz_proj_sf)
 print(head(zz_proj_coords))
-# Project grid coordinates
-#zz <- SpatialPointsDataFrame(coords=zxy[, 1:2], proj4string=CRS("+proj=longlat +datum=WGS84"), data=zxy)
-#zz.proj <- project(as.matrix(coordinates(zz)), proj=(as.character("+proj=eqc +lat_ts=60 +lon_0=0 +x_0=0 +y_0=0 ...")))
 
 # Calculate the grid cell sizes (deltax and deltay)
 deltax <- max(diff(zz_proj_coords[, 1]))
@@ -287,12 +172,8 @@ deltay <- max(diff(zz_proj_coords[order(yy), 2]))
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Calculate variables of interest (distance to center and roads)
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#dhaut <- gdist(xh, yh, xx, yy, unit="km")  # Distance to highest koala density point (xh, yh)
+dhaut <- gdist(xh, yh, xx, yy, unit="km")  # Distance to highest koala density point (xh, yh)
 
-dhaut<-rep(NA,length(xx))
-for(i in 1:length(xx)) { 
-  dhaut[i]  <- as.numeric(vincenty_distance_tf_manual(xh, yh,xx[i], yy[i]) / 1000)  # Convert to km
-}
 
 # Identify which grid points are inside the parks (based on shapefile)
 ok <- rep(FALSE, length(xx))
@@ -302,14 +183,8 @@ for (i in 1:length(shp)) {
 
 # Find nearest road for each grid point and extract road distance
 idr <- NULL
-for (i in 1:length(xx)) {
-  nl<-length(disroute.dat$Lon)
-  tempdist<-rep(NA,nl)
-  for(j in 1:nl) { 
-    tempdist[j]  <- as.numeric(vincenty_distance_tf_manual(xx[i], yy[i], disroute.dat$Lon[j], disroute.dat$Lat[j]) / 1000)  # Convert to km
-  }
-  idr <- c(idr, order(tempdist)[1])
-}
+for( i in 1:length(xx))
+{ idr <-c(idr,order(gdist(xx[i],yy[i], disroute.dat$Lon,disroute.dat$Lat,unit="km"))[1]) }
 valdr <- disroute.dat$D2SROADS[idr]  # Distance to the nearest road
 
 
@@ -324,9 +199,8 @@ for (i in 1:length(shp)) {
 
 # Find nearest road for each koala location
 kidr <- NULL
-for (i in 1:length(Koala2$x)) {
-  kidr <- c(kidr, order(gdist(Koala2$x[i], Koala2$y[i], disroute.dat$Lon, disroute.dat$Lat, unit="km"))[1])
-}
+for( i in 1:length(Koala2$x))
+{ kidr <-c(kidr,order(gdist(Koala2$x[i],Koala2$y[i], disroute.dat$Lon,disroute.dat$Lat,unit="km"))[1]) }
 kvaldr <- disroute.dat$D2SROADS[kidr]  # Distance to the nearest road for koalas
 
 
