@@ -12,6 +12,8 @@ Accompanies paper:<br>
 - <a href="https://github.com/FredSaltre/Koala_MLR/tree/main/Species_Distribution_Model">Species distribution model</a>
 - <a href="https://github.com/FredSaltre/Koala_MLR/tree/main/Point_Process_Model">Point-process model</a>
 
+This project uses **R version X.X.X**. Ensure you have this version installed for compatibility. 
+
 Ensure the following R libraries are installed: `geoR`, `sf`, `spatstat`, `MASS`, `proj4`, `sp`, `terra`, `dplyr`, `plotly`,`deSolve`,`biomod2`, `terra`, `ggplot2`, `rgdal`, `sf`, `raster`, `maptools`
 
 
