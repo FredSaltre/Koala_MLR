@@ -12,7 +12,14 @@ Accompanies paper:<br>
 - <a href="https://github.com/FredSaltre/Koala_MLR/tree/main/Species_Distribution_Model">Species distribution model</a>
 - <a href="https://github.com/FredSaltre/Koala_MLR/tree/main/Point_Process_Model">Point-process model</a>
 
-This project uses **R version X.X.X**. Ensure you have this version installed for compatibility. 
+This project uses **R version 4.0.4**. Ensure you have this version installed for compatibility. If you are using a later version of R, you will need to manually install the package **Imap 1.32**, which is no longer available on CRAN for direct installation. Follow these steps to install it:
+
+  1. **Download the Package:**  
+     Visit the [CRAN Archive for    Imap](https://cran.r-project.org/src/contrib/Archive/Imap/) and download the package archive file (`Imap_1.32.tar.gz`).
+
+  2. **Install the Package Manually:**  
+     Open R and use the following command to install the downloaded file:
+     install.packages("~/Imap_1.32.tar.gz", repos = NULL, type = "source")
 
 Ensure the following R libraries are installed: `geoR`, `sf`, `spatstat`, `MASS`, `proj4`, `sp`, `terra`, `dplyr`, `plotly`,`deSolve`,`biomod2`, `terra`, `ggplot2`, `rgdal`, `sf`, `raster`, `maptools`
 
